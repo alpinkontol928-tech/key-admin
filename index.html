@@ -1,0 +1,450 @@
+<!DOCTYPE html>
+<html lang="id">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>🐉 Dragon Slot</title>
+  <style>
+    * { margin:0; padding:0; box-sizing:border-box; font-family: 'Segoe UI', sans-serif; }
+    body { background:#0a0a1a; color:#eee; padding:20px; }
+    .container { max-width:500px; margin:0 auto; }
+    .card { background:#1a1a2e; border-radius:12px; padding:20px; margin-bottom:15px; border:1px solid #333; }
+    h1, h2, h3 { color:#ff6b6b; }
+    input, button { width:100%; padding:10px; margin:5px 0; border-radius:6px; border:none; }
+    input { background:#222; color:#fff; }
+    button { background:#4a4a8a; color:#fff; cursor:pointer; }
+    button:hover { background:#6a6aaa; }
+    .flex { display:flex; gap:10px; flex-wrap:wrap; }
+    .flex button { flex:1; }
+    .game-grid { display:flex; gap:10px; flex-wrap:wrap; }
+    .game-item { background:#111; padding:15px; border-radius:8px; flex:1 0 80px; text-align:center; cursor:pointer; border:1px solid #444; }
+    .game-item:hover { border-color:#ff6b6b; }
+    .reels { display:flex; justify-content:center; gap:15px; margin:15px 0; }
+    .reel { display:flex; flex-direction:column; gap:8px; background:#0a0a1a; padding:10px; border-radius:8px; }
+    .symbol { font-size:32px; }
+    .modal { position:fixed; top:0; left:0; width:100%; height:100%; background:rgba(0,0,0,0.7); display:flex; align-items:center; justify-content:center; z-index:999; }
+    .modal-content { background:#1a1a2e; padding:30px; border-radius:12px; width:90%; max-width:400px; }
+    .hidden { display:none; }
+    .badge { display:inline-block; padding:2px 8px; border-radius:12px; font-size:12px; background:#4a4a8a; }
+    .admin-btn { background:#8a2a2a; }
+    .admin-btn:hover { background:#aa3a3a; }
+    img.qr { max-width:200px; margin:10px auto; display:block; }
+  </style>
+</head>
+<body>
+<div id="app" class="container">
+
+  <!-- NAVBAR -->
+  <div class="card" style="display:flex; justify-content:space-between; align-items:center;">
+    <span style="font-size:24px; font-weight:bold; color:#ff6b6b;">🐉 Dragon Slot</span>
+    <div v-if="user">
+      <span>👤 {{ user.username }}</span>
+      <span style="margin-left:10px;">💰 {{ user.balance }}</span>
+      <button @click="logout" style="width:auto; padding:5px 15px; margin-left:10px;">Logout</button>
+    </div>
+    <div v-else>
+      <button @click="showRegister=true" style="width:auto; padding:5px 15px;">Daftar</button>
+      <button @click="showLogin=true" style="width:auto; padding:5px 15px;">Login</button>
+    </div>
+  </div>
+
+  <!-- REGISTER MODAL -->
+  <div v-if="showRegister" class="modal">
+    <div class="modal-content">
+      <h3>Daftar</h3>
+      <input v-model="regUsername" placeholder="Username">
+      <input v-model="regPassword" type="password" placeholder="Password">
+      <input v-model="regEmail" placeholder="Email">
+      <button @click="register">Daftar</button>
+      <button @click="showRegister=false">Tutup</button>
+    </div>
+  </div>
+
+  <!-- LOGIN MODAL -->
+  <div v-if="showLogin" class="modal">
+    <div class="modal-content">
+      <h3>Login</h3>
+      <input v-model="loginUsername" placeholder="Username">
+      <input v-model="loginPassword" type="password" placeholder="Password">
+      <button @click="login">Login</button>
+      <button @click="showLogin=false">Tutup</button>
+    </div>
+  </div>
+
+  <!-- GAME SELECTION -->
+  <div v-if="user" class="card">
+    <h2>🎰 Pilih Game</h2>
+    <div class="game-grid">
+      <div class="game-item" v-for="game in games" :key="game.name" @click="selectGame(game)">
+        <div style="font-size:28px;">{{ game.icon }}</div>
+        <div>{{ game.label }}</div>
+        <div style="font-size:12px; color:#888;">Win: {{ (game.winRate*100).toFixed(0) }}%</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- GAME AREA -->
+  <div v-if="selectedGame" class="card">
+    <h3>{{ selectedGame.label }}</h3>
+    <div class="reels">
+      <div v-for="(reel, idx) in matrix" :key="idx" class="reel">
+        <div v-for="(sym, j) in reel" :key="j" class="symbol">{{ sym }}</div>
+      </div>
+    </div>
+    <div class="flex">
+      <input type="number" v-model.number="bet" min="1" step="1" style="flex:2;">
+      <button @click="spin" style="flex:3;">Spin ({{ bet }})</button>
+    </div>
+    <p v-if="lastWin !== null">🏆 Menang: {{ lastWin }}</p>
+    <p>💰 Saldo: {{ user.balance }}</p>
+    <button @click="selectedGame=null">Kembali</button>
+  </div>
+
+  <!-- DEPOSIT -->
+  <div v-if="user" class="card">
+    <h3>💰 Deposit</h3>
+    <div class="flex">
+      <input type="number" v-model.number="depositAmount" placeholder="Jumlah" style="flex:2;">
+      <button @click="createDeposit" style="flex:1;">Buat Deposit</button>
+    </div>
+    <div v-if="depositQR">
+      <img :src="depositQR" class="qr" alt="QR">
+      <p style="text-align:center; font-size:12px; color:#888;">Scan QR, admin akan konfirmasi.</p>
+      <p style="text-align:center; font-size:12px;">Status: <span :style="{color: depositStatus==='accepted'?'#4caf50':depositStatus==='rejected'?'#f44336':'#ff9800'}">{{ depositStatus || 'Menunggu...' }}</span></p>
+    </div>
+  </div>
+
+  <!-- ADMIN PANEL (hidden) -->
+  <div v-if="user && user.isAdmin" class="card" style="border-color:#ff6b6b;">
+    <h3>🔐 Admin Panel</h3>
+    <div v-for="dep in pendingDeposits" :key="dep.id" style="border-bottom:1px solid #333; padding:8px 0;">
+      <span>{{ dep.username }} – Rp{{ dep.amount }}</span>
+      <button @click="approveDeposit(dep.id)" style="width:auto; padding:2px 12px; background:#4caf50; margin-left:10px;">✅</button>
+      <button @click="rejectDeposit(dep.id)" style="width:auto; padding:2px 12px; background:#f44336;">❌</button>
+    </div>
+    <div v-if="pendingDeposits.length===0">Tidak ada deposit pending.</div>
+    <hr>
+    <div style="margin-top:10px;">
+      <label>Set Winrate (0-95):</label>
+      <input v-model.number="adminWinRate" type="number" min="0" max="95" style="width:80px; display:inline-block;">
+      <button @click="setWinrate" style="width:auto; padding:5px 20px;">Set</button>
+    </div>
+  </div>
+
+  <!-- FOOTER -->
+  <div style="text-align:center; color:#555; margin-top:20px; font-size:12px;">
+    Dragon Slot v1.0 – Data tersimpan di localStorage.<br>
+    Admin password: <span style="color:#888;">admin123</span> (klik 5x logo untuk masuk)
+  </div>
+</div>
+
+<script src="https://cdn.jsdelivr.net/npm/vue@2/dist/vue.min.js"></script>
+<script>
+// ============================================================
+// DRAGON SLOT – SINGLE FILE (semua dalam satu HTML)
+// ============================================================
+
+new Vue({
+  el: '#app',
+  data: {
+    user: null,
+    showRegister: false,
+    showLogin: false,
+    regUsername: '', regPassword: '', regEmail: '',
+    loginUsername: '', loginPassword: '',
+    games: [
+      { name: 'classic', label: 'Classic', icon: '🍒', winRate: 0.05 },
+      { name: 'fruit', label: 'Fruit', icon: '🍎', winRate: 0.05 },
+      { name: 'diamond', label: 'Diamond', icon: '💎', winRate: 0.05 },
+      { name: 'egypt', label: 'Egypt', icon: '🐫', winRate: 0.05 },
+      { name: 'wildwest', label: 'Wild West', icon: '🤠', winRate: 0.05 }
+    ],
+    selectedGame: null,
+    bet: 10,
+    matrix: [],
+    lastWin: null,
+    depositAmount: 10000,
+    depositQR: null,
+    depositStatus: null,
+    depositId: null,
+    pendingDeposits: [],
+    adminWinRate: 5,
+    // Admin credentials
+    adminPassword: 'admin123',
+    isAdmin: false,
+    // Simpan data di localStorage
+  },
+  created() {
+    // Load user from localStorage
+    const stored = localStorage.getItem('dragonUser');
+    if (stored) {
+      this.user = JSON.parse(stored);
+      this.checkAdmin();
+    }
+    // Load pending deposits from localStorage
+    this.loadDeposits();
+    // Load winrates from localStorage
+    this.loadWinrates();
+  },
+  methods: {
+    // ===== AUTH =====
+    register() {
+      if (!this.regUsername || !this.regPassword || !this.regEmail) {
+        alert('Semua field harus diisi');
+        return;
+      }
+      let users = JSON.parse(localStorage.getItem('dragonUsers') || '[]');
+      if (users.find(u => u.username === this.regUsername)) {
+        alert('Username sudah terdaftar');
+        return;
+      }
+      users.push({
+        username: this.regUsername,
+        password: this.regPassword,
+        email: this.regEmail,
+        balance: 0,
+        isAdmin: false
+      });
+      localStorage.setItem('dragonUsers', JSON.stringify(users));
+      alert('Registrasi berhasil! Silakan login.');
+      this.showRegister = false;
+    },
+    login() {
+      let users = JSON.parse(localStorage.getItem('dragonUsers') || '[]');
+      const found = users.find(u => u.username === this.loginUsername && u.password === this.loginPassword);
+      if (!found) {
+        alert('Username atau password salah');
+        return;
+      }
+      this.user = { ...found };
+      localStorage.setItem('dragonUser', JSON.stringify(this.user));
+      this.checkAdmin();
+      this.showLogin = false;
+      this.loadDeposits();
+    },
+    logout() {
+      this.user = null;
+      localStorage.removeItem('dragonUser');
+      this.isAdmin = false;
+      this.selectedGame = null;
+      this.matrix = [];
+      this.lastWin = null;
+      this.depositQR = null;
+      this.depositStatus = null;
+    },
+    checkAdmin() {
+      if (this.user && this.user.username === 'admin') {
+        this.isAdmin = true;
+      } else {
+        // Admin access via password (double-click logo)
+        // We'll implement later
+      }
+    },
+
+    // ===== GAMES =====
+    selectGame(game) {
+      this.selectedGame = game;
+      this.matrix = [];
+      this.lastWin = null;
+    },
+    spin() {
+      if (!this.selectedGame) return;
+      if (this.user.balance < this.bet) {
+        alert('Saldo tidak mencukupi');
+        return;
+      }
+      // Simulate spin with winrate
+      const game = this.selectedGame;
+      const winRate = game.winRate;
+      const symbols = this.getSymbols(game.name);
+      const reels = 3;
+      const rows = 3;
+      // Generate matrix
+      const matrix = [];
+      for (let i = 0; i < reels; i++) {
+        const reel = [];
+        for (let j = 0; j < rows; j++) {
+          const idx = Math.floor(Math.random() * symbols.length);
+          reel.push(symbols[idx]);
+        }
+        matrix.push(reel);
+      }
+      this.matrix = matrix;
+      // Calculate win
+      let win = 0;
+      // Check middle row
+      const mid = matrix.map(r => r[1]);
+      if (mid.every(s => s === mid[0])) {
+        const mult = symbols.indexOf(mid[0]) + 1;
+        win = this.bet * mult * 0.5;
+      }
+      // Apply winrate: if random > winRate, set win to 0
+      if (Math.random() > winRate) {
+        win = 0;
+      }
+      // Update balance
+      this.user.balance -= this.bet;
+      this.user.balance += win;
+      this.lastWin = win;
+      // Save user
+      this.saveUser();
+    },
+    getSymbols(gameName) {
+      const map = {
+        classic: ['🍒','🍋','🍊','🍇','🔔','7️⃣'],
+        fruit: ['🍎','🍊','🍇','🍉','🍓','🍒','🍋','🍑'],
+        diamond: ['💎','🔶','🔷','♦️','⭐','🔥'],
+        egypt: ['🐫','🏺','👑','☀️','🌙','🔮'],
+        wildwest: ['🤠','🔫','💰','🏜️','🐴','🌵']
+      };
+      return map[gameName] || ['🍒','🍋','🍊','🍇','🔔','7️⃣'];
+    },
+
+    // ===== DEPOSIT =====
+    createDeposit() {
+      if (!this.depositAmount || this.depositAmount <= 0) {
+        alert('Masukkan jumlah yang valid');
+        return;
+      }
+      // Generate QR code (simulated with a static data URL)
+      const qrData = `Deposit: ${this.depositAmount} untuk ${this.user.username}`;
+      // Use QRCode.js or simple placeholder; we'll use a placeholder image
+      // For simplicity, we generate a fake QR via a canvas? We'll just use a data URL with text.
+      // Actually we can use a simple QR code library via CDN? Let's embed a small one.
+      // We'll use a simple API: https://api.qrserver.com/v1/create-qr-code/?data=...
+      const qrUrl = `https://api.qrserver.com/v1/create-qr-code/?size=200x200&data=${encodeURIComponent(qrData)}`;
+      this.depositQR = qrUrl;
+      // Save deposit to pending list
+      const deposit = {
+        id: Date.now().toString(),
+        username: this.user.username,
+        amount: this.depositAmount,
+        status: 'pending',
+        createdAt: new Date().toISOString()
+      };
+      let deposits = JSON.parse(localStorage.getItem('dragonDeposits') || '[]');
+      deposits.push(deposit);
+      localStorage.setItem('dragonDeposits', JSON.stringify(deposits));
+      this.depositId = deposit.id;
+      this.depositStatus = 'pending';
+      this.loadDeposits();
+      // Send notification to Telegram (optional)
+      this.sendTelegramNotification(deposit);
+    },
+    sendTelegramNotification(deposit) {
+      // Ganti dengan BOT_TOKEN dan CHAT_ID lo
+      const botToken = 'ISI_TOKEN_BOTFATHER'; // ganti dengan token asli
+      const chatId = 'ISI_CHAT_ID_ADMIN'; // ganti dengan ID admin
+      const message = `💰 Deposit Baru!\nUser: ${deposit.username}\nJumlah: ${deposit.amount}\nID: ${deposit.id}`;
+      fetch(`https://api.telegram.org/bot${botToken}/sendMessage`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ chat_id: chatId, text: message })
+      }).catch(err => console.error('Telegram error:', err));
+    },
+    loadDeposits() {
+      let deposits = JSON.parse(localStorage.getItem('dragonDeposits') || '[]');
+      this.pendingDeposits = deposits.filter(d => d.status === 'pending');
+    },
+    approveDeposit(id) {
+      let deposits = JSON.parse(localStorage.getItem('dragonDeposits') || '[]');
+      const dep = deposits.find(d => d.id === id);
+      if (!dep) return;
+      dep.status = 'accepted';
+      localStorage.setItem('dragonDeposits', JSON.stringify(deposits));
+      // Add balance to user
+      let users = JSON.parse(localStorage.getItem('dragonUsers') || '[]');
+      const user = users.find(u => u.username === dep.username);
+      if (user) {
+        user.balance += dep.amount;
+        localStorage.setItem('dragonUsers', JSON.stringify(users));
+        // Update current user if same
+        if (this.user.username === dep.username) {
+          this.user.balance = user.balance;
+          this.saveUser();
+        }
+      }
+      this.loadDeposits();
+      // If this deposit is the one we're tracking, update status
+      if (this.depositId === id) {
+        this.depositStatus = 'accepted';
+      }
+    },
+    rejectDeposit(id) {
+      let deposits = JSON.parse(localStorage.getItem('dragonDeposits') || '[]');
+      const dep = deposits.find(d => d.id === id);
+      if (!dep) return;
+      dep.status = 'rejected';
+      localStorage.setItem('dragonDeposits', JSON.stringify(deposits));
+      this.loadDeposits();
+      if (this.depositId === id) {
+        this.depositStatus = 'rejected';
+      }
+    },
+
+    // ===== ADMIN: Set Winrate =====
+    setWinrate() {
+      if (!this.isAdmin) {
+        alert('Anda bukan admin');
+        return;
+      }
+      const rate = this.adminWinRate / 100;
+      if (rate < 0 || rate > 0.95) {
+        alert('Masukkan 0-95');
+        return;
+      }
+      // Set winrate for all games
+      this.games.forEach(g => g.winRate = rate);
+      localStorage.setItem('dragonWinrates', JSON.stringify(this.games));
+      alert('Winrate semua game diubah menjadi ' + (rate*100) + '%');
+    },
+    loadWinrates() {
+      const stored = localStorage.getItem('dragonWinrates');
+      if (stored) {
+        try {
+          const rates = JSON.parse(stored);
+          this.games = rates;
+        } catch (e) {}
+      }
+    },
+
+    // ===== UTILITY =====
+    saveUser() {
+      let users = JSON.parse(localStorage.getItem('dragonUsers') || '[]');
+      const idx = users.findIndex(u => u.username === this.user.username);
+      if (idx !== -1) {
+        users[idx] = this.user;
+        localStorage.setItem('dragonUsers', JSON.stringify(users));
+        localStorage.setItem('dragonUser', JSON.stringify(this.user));
+      }
+    }
+  }
+});
+
+// ===== ADMIN ACCESS (double-click logo) =====
+document.addEventListener('dblclick', function(e) {
+  if (e.target.closest('.logo')) {
+    const pass = prompt('Masukkan password admin:');
+    if (pass === 'admin123') {
+      // Set admin flag
+      const app = document.getElementById('app').__vue__;
+      app.isAdmin = true;
+      if (app.user) {
+        app.user.isAdmin = true;
+        app.saveUser();
+      } else {
+        // Create admin user if not logged in
+        let users = JSON.parse(localStorage.getItem('dragonUsers') || '[]');
+        if (!users.find(u => u.username === 'admin')) {
+          users.push({ username: 'admin', password: 'admin123', email: 'admin@dragon.com', balance: 0, isAdmin: true });
+          localStorage.setItem('dragonUsers', JSON.stringify(users));
+        }
+        alert('Admin mode aktif. Silakan login sebagai admin.');
+      }
+    }
+  }
+});
+</script>
+
+</body>
+</html>
